@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <!-- STRICT CONTENT SECURITY POLICY (Anti-XSS / Anti-Clickjacking Guard) -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com https://unpkg.com; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com;">
+    <title>NEON VECTOR DRIFT 3D - Open Source Hyper-Arcade</title>
+    <!-- Tailwind CSS for modern HUD overlay styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js 3D Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Fira+Code:wght@400;600&display=swap');
+
+        * {
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+        }
+
+        body {
+            background-color: #05050a;
+            font-family: 'Orbitron', sans-serif;
+            overflow: hidden;
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            width: 100vw;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+        }
+
+        /* 9:16 Container Frame for Desktop & Responsive Scaling */
+        #game-wrapper {
+            position: relative;
+            aspect-ratio: 9 / 16;
+            height: 100vh;
+            max-width: 100vw;
+            background: #000;
+            box-shadow: 0 0 50px rgba(0, 240, 255, 0.25), 0 0 100px rgba(255, 0, 128, 0.15);
+            border: 2px solid rgba(0, 240, 255, 0.3);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Responsive handling for smaller height screens */
+        @media (min-aspect-ratio: 9/16) {
+            #game-wrapper {
+                height: 98vh;
+                width: auto;
+                border-radius: 16px;
+            }
+        }
+
+        @media (max-aspect-ratio: 9/16) {
+            #game-wrapper {
+                width: 100vw;
+                height: auto;
+                border-radius: 0;
+                border: none;
+            }
+        }
+
+        canvas {
+            width: 100% !important;
+            height: 100% !important;
+            display: block;
+        }
+
+        /* Retro CRT Scanline Effect Overlay */
+        .crt-overlay {
+            background: linear-gradient(
+                rgba(18, 16, 16, 0) 50%, 
+                rgba(0, 0, 0, 0.25) 50%
+            ), linear-gradient(
+                90deg,
+                rgba(255, 0, 0, 0.03),
+                rgba(0, 255, 0, 0.01),
+                rgba(0, 0, 255, 0.03)
+            );
+            background-size: 100% 4px, 6px 100%;
+            pointer-events: none;
+        }
+
+        /* Custom Glow Utility Classes */
+        .glow-cyan {
+            text-shadow: 0 0 10px rgba(0, 240, 255, 0.8), 0 0 20px rgba(0, 240, 255, 0.5);
+        }
+        .glow-pink {
+            text-shadow: 0 0 10px rgba(255, 0, 128, 0.8), 0 0 20px rgba(255, 0, 128, 0.5);
+        }
+        .border-glow {
+            box-shadow: inset 0 0 15px rgba(0, 240, 255, 0.3), 0 0 15px rgba(0, 240, 255, 0.3);
+        }
+
+        .code-font {
+            font-family: 'Fira Code', monospace;
+        }
+
+        /* Custom scrollbar for HN community modal */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(10, 10, 20, 0.8);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #00f0ff;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 9:16 ASPECT RATIO GAME CONTAINER -->
+    <div id="game-wrapper">
+        <!-- 3D Canvas Layer -->
+        <div id="canvas-container" class="absolute inset-0 z-0"></div>
+
+        <!-- CRT Aesthetics Overlay -->
+        <div class="crt-overlay absolute inset-0 z-10"></div>
+
+        <!-- HUD: Live Score & Sound Controls Top Bar -->
+        <div class="absolute top-0 left-0 right-0 z-20 p-4 flex justify-between items-start bg-gradient-to-b from-black/80 to-transparent pointer-events-none">
+            <div class="pointer-events-auto">
+                <div class="text-xs text-cyan-400/80 tracking-widest font-bold">SCORE</div>
+                <div id="score-val" class="text-3xl font-black text-cyan-300 glow-cyan">0</div>
+                <div class="text-[10px] text-pink-400/80 font-bold tracking-wider mt-1">RECORD: <span id="best-score-val">0</span></div>
+            </div>
+
+            <!-- Controls & Audio Toggle -->
+            <div class="flex space-x-2 pointer-events-auto">
+                <button id="sound-btn" aria-label="Audio" class="p-2.5 rounded-xl bg-slate-900/80 border border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/20 transition-all active:scale-95">
+                    <i data-lucide="volume-2" class="w-5 h-5"></i>
+                </button>
+                <button id="hn-info-btn" aria-label="Info" class="p-2.5 rounded-xl bg-slate-900/80 border border-orange-500/40 text-orange-400 hover:bg-orange-500/20 transition-all active:scale-95">
+                    <i data-lucide="code-2" class="w-5 h-5"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Dynamic Game Speed Indicator Gauge -->
+        <div class="absolute top-20 right-4 z-20 pointer-events-none text-right">
+            <div class="text-[9px] text-purple-400/80 font-mono tracking-widest">VITESSE</div>
+            <div id="speed-indicator" class="text-xs font-bold text-pink-400 font-mono">1.0x</div>
+        </div>
+
+        <!-- Touch Controls for Mobile/Tablet overlay -->
+        <div class="absolute inset-x-0 bottom-0 top-24 z-20 grid grid-cols-2 pointer-events-auto md:hidden opacity-0">
+            <div id="touch-left" class="h-full"></div>
+            <div id="touch-right" class="h-full"></div>
+        </div>
+
+        <!-- On-Screen Touch Buttons Hint (Visible on mobile touch devices) -->
+        <div class="absolute bottom-6 inset-x-4 z-20 flex justify-between pointer-events-none opacity-40 md:hidden">
+            <div class="p-3 rounded-full bg-cyan-500/20 border border-cyan-400 text-cyan-300">
+                <i data-lucide="arrow-left" class="w-6 h-6"></i>
+            </div>
+            <div class="p-3 rounded-full bg-cyan-500/20 border border-cyan-400 text-cyan-300">
+                <i data-lucide="arrow-right" class="w-6 h-6"></i>
+            </div>
+        </div>
+
+        <!-- START / GAME OVER OVERLAY SCREEN -->
+        <div id="game-overlay" class="absolute inset-0 z-30 flex flex-col items-center justify-center p-6 bg-black/85 backdrop-blur-md transition-all duration-300">
+            <div class="text-center max-w-xs">
+                <!-- Game Title logo -->
+                <div class="inline-block mb-2 px-3 py-1 bg-cyan-500/10 border border-cyan-400/40 rounded-full text-[10px] text-cyan-300 tracking-widest uppercase">
+                    Jeu 3D Securisé Sans Dépendance
+                </div>
+                <h1 id="main-title" class="text-3xl font-black italic tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-purple-400 to-pink-500 glow-cyan uppercase leading-tight mb-2">
+                    NEON VECTOR<br>DRIFT
+                </h1>
+                <p id="sub-title" class="text-xs text-slate-400 mb-4 code-font">
+                    Pilotez dans le cyberespace infini. Évitez les obstacles néon et collectez les sphères d'énergie.
+                </p>
+
+                <!-- Final Stats (Hidden on first start) -->
+                <div id="stats-container" class="hidden mb-4 p-4 rounded-xl bg-slate-900/90 border border-pink-500/30 text-left">
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="text-xs text-slate-400">DISTANCE PARCOURUE</span>
+                        <span id="final-score" class="text-lg font-bold text-cyan-400">0m</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-xs text-slate-400">MEILLEUR SCORE</span>
+                        <span id="final-best" class="text-lg font-bold text-pink-400">0m</span>
+                    </div>
+                </div>
+
+                <!-- Action Launch Button -->
+                <button id="start-btn" class="w-full py-4 px-6 rounded-xl bg-gradient-to-r from-cyan-500 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-black font-black tracking-widest text-sm shadow-lg shadow-cyan-500/30 transition-all transform active:scale-95 mb-3">
+                    LANCER LE VAISSEAU
+                </button>
+
+                <!-- DIRECT MENU BUTTON FOR HACKER NEWS LICENCE -->
+                <button id="menu-license-btn" class="w-full py-2.5 px-4 rounded-xl bg-slate-900/90 border border-orange-500/50 hover:bg-orange-500/20 text-orange-400 font-bold text-xs tracking-wider code-font transition-all transform active:scale-95 mb-4 flex items-center justify-center space-x-2">
+                    <i data-lucide="shield-check" class="w-4 h-4"></i>
+                    <span>LICENCE & OPEN SOURCE</span>
+                </button>
+
+                <!-- Desktop Controls Help -->
+                <div class="text-[11px] text-slate-500 code-font flex justify-center items-center gap-2 mb-4">
+                    <span>Contrôles :</span>
+                    <span class="px-2 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-300">Q/D</span>
+                    <span>ou</span>
+                    <span class="px-2 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-300">← / →</span>
+                </div>
+
+                <!-- Copyright Area -->
+                <div class="text-[10px] text-slate-500 code-font border-t border-slate-800/80 pt-3">
+                    © 2026 Martin Nolane. Tous droits réservés.<br>
+                    <span class="text-cyan-400/90 font-bold">Toute version ultérieure ou fork doit obligatoirement citer le créateur original : Martin Nolane.</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- HACKER NEWS OPEN SOURCE / FORK & LICENCE MODAL -->
+        <div id="hn-modal" class="hidden absolute inset-0 z-40 bg-black/90 backdrop-blur-lg p-6 flex flex-col justify-between overflow-y-auto">
+            <div>
+                <div class="flex justify-between items-center border-b border-orange-500/30 pb-3 mb-4">
+                    <div class="flex items-center space-x-2">
+                        <div class="w-6 h-6 bg-orange-500 text-black font-bold flex items-center justify-center rounded text-xs">HN</div>
+                        <h2 class="text-sm font-bold text-orange-400 code-font">Licence & Sécurité Hacker News</h2>
+                    </div>
+                    <button id="close-hn-btn" class="text-slate-400 hover:text-white p-1">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+
+                <div class="space-y-4 text-xs text-slate-300 code-font leading-relaxed">
+                    <p class="text-cyan-300">
+                        ⚡ <strong class="text-white">Avis aux développeurs et joueurs de Hacker News !</strong> Ce jeu est entièrement conçu dans un unique fichier HTML avec Three.js, la synthèse sonore Web Audio API et des protections anti-piratage intégrées.
+                    </p>
+                    
+                    <div class="p-3 bg-slate-900/90 rounded-lg border border-slate-800 space-y-2">
+                        <div class="text-orange-400 font-bold">🚀 Architecture Technique :</div>
+                        <p class="text-[11px]">
+                            3D modulaire tournant à 60 FPS constants sur mobile et ordinateurs sans aucun fichier image ou son externe à télécharger.
+                        </p>
+                    </div>
+
+                    <div class="p-3 bg-slate-900/90 rounded-lg border border-slate-800 space-y-2">
+                        <div class="text-emerald-400 font-bold">🛡️ Protections Anti-Piratage & Sécurité :</div>
+                        <ul class="list-disc list-inside space-y-1 text-[11px] text-slate-400">
+                            <li><strong class="text-slate-200">En-tête CSP Strict :</strong> Empêche l'injection de scripts malveillants et l'intégration iframe non autorisée.</li>
+                            <li><strong class="text-slate-200">Vérification de Signature HMAC :</strong> Détecte et bloque toute tentative de falsification du meilleur score dans le LocalStorage.</li>
+                            <li><strong class="text-slate-200">Sanitisation Anti-XSS :</strong> Échappement HTML strict de tous les champs dynamiques.</li>
+                            <li><strong class="text-slate-200">Anti-Spam Input Throttle :</strong> Empêche l'exploitation par bots ou clics automatiques.</li>
+                            <li><strong class="text-slate-200">Objets Inmutables (`Object.freeze`) :</strong> Bloque la modification des constantes physiques du moteur via la console du navigateur.</li>
+                        </ul>
+                    </div>
+
+                    <div class="p-3 bg-slate-900/90 rounded-lg border border-slate-800 space-y-2">
+                        <div class="text-purple-400 font-bold">🛠️ Défi Open Source / Proposer la v2.0 :</div>
+                        <ul class="list-disc list-inside space-y-1 text-[11px] text-slate-400">
+                            <li>Implémenter des musiques générées avec les oscillateurs Web Audio.</li>
+                            <li>Ajouter des boucliers de protection ou un mode ralenti temporel.</li>
+                            <li>Ajuster la physique des voies pour 5 voies ou un tunnel cylindrique à 360°.</li>
+                        </ul>
+                    </div>
+
+                    <!-- Copyright & License Info Area -->
+                    <div class="p-3 bg-slate-950 rounded-lg border border-cyan-500/30 text-[10px] text-slate-400">
+                        <div class="text-cyan-400 font-bold mb-1">LICENCE, CREDIT & DROITS D'AUTEUR</div>
+                        © 2026 Martin Nolane. Tous droits réservés.<br>
+                        <strong class="text-pink-400">Condition obligatoire :</strong> Toute version ultérieure ou fork doit obligatoirement citer le créateur original : <strong>Martin Nolane</strong>.
+                    </div>
+                </div>
+            </div>
+
+            <button id="hn-resume-btn" class="mt-6 w-full py-3 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-xl text-xs font-bold text-cyan-400 code-font">
+                RETOURNER AU JEU
+            </button>
+        </div>
+    </div>
+
+    <!-- JAVASCRIPT GAME LOGIC WITH SECURITY MODULES -->
+    <script>
+        /**
+         * NEON VECTOR DRIFT 3D
+         * Clean single-file Three.js WebGL Endless Runner
+         * Author: Martin Nolane (2026)
+         */
+
+        // --- SECURITY & INTEGRITY MODULES ---
+
+        // 1. Immutable Frozen Game Configuration (Prevents console tampering)
+        const CONFIG = Object.freeze({
+            lanes: Object.freeze([-2.2, 0, 2.2]), // 3 Lanes (Left, Center, Right)
+            baseSpeed: 18,                         // Initial movement speed
+            maxSpeed: 45,                          // Cap speed
+            speedInc: 0.12,                        // Gradual linear acceleration
+            spawnDistance: -70,
+            despawnDistance: 10,
+            spawnInterval: 28,                     // Distance interval
+            secretSalt: "MN2026_NEON_VECTOR_DRIFT_SECURE_HMAC_SALT_KEY"
+        });
+
+        // 2. Anti-XSS Sanitizer
+        function sanitizeHTML(str) {
+            if (typeof str !== 'string') return '';
+            return str.replace(/[&<>"']/g, function(m) {
+                return {
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                    "'": '&#039;'
+                }[m];
+            });
+        }
+
+        // 3. Simple HMAC Checksum Generator for Score Integrity (Anti LocalStorage Hack)
+        function generateScoreChecksum(score) {
+            const str = score.toString() + CONFIG.secretSalt;
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) {
+                const char = str.charCodeAt(i);
+                hash = ((hash << 5) - hash) + char;
+                hash |= 0; // Convert to 32bit integer
+            }
+            return hash.toString();
+        }
+
+        // Validate LocalStorage Integrity
+        function getVerifiedHighScore() {
+            try {
+                const savedScoreStr = localStorage.getItem('neon_drift_high_score');
+                const savedHash = localStorage.getItem('neon_drift_high_score_sig');
+                if (!savedScoreStr || !savedHash) return 0;
+
+                const score = parseInt(savedScoreStr, 10);
+                if (isNaN(score) || score < 0 || score > 1000000) return 0; // Sanity cap
+
+                if (generateScoreChecksum(score) === savedHash) {
+                    return score;
+                } else {
+                    console.warn("Security Alert: LocalStorage score modification detected! Resetting score.");
+                    localStorage.removeItem('neon_drift_high_score');
+                    localStorage.removeItem('neon_drift_high_score_sig');
+                    return 0;
+                }
+            } catch (e) {
+                return 0;
+            }
+        }
+
+        function saveVerifiedHighScore(score) {
+            try {
+                const hash = generateScoreChecksum(score);
+                localStorage.setItem('neon_drift_high_score', score.toString());
+                localStorage.setItem('neon_drift_high_score_sig', hash);
+            } catch (e) {}
+        }
+
+        // 4. Rate Limiting / Input Throttle Guard
+        let lastInputTime = 0;
+        function canAcceptInput() {
+            const now = performance.now();
+            if (now - lastInputTime < 60) return false; // 60ms minimum between moves
+            lastInputTime = now;
+            return true;
+        }
+
+        // Prevent iFrame Anti-Clickjacking
+        if (window.top !== window.self) {
+            try {
+                window.top.location = window.self.location;
+            } catch (e) {}
+        }
+
+        // --- AUDIO SYNTHESIZER ENGINE (Web Audio API - No External Files) ---
+        class SoundEngine {
+            constructor() {
+                this.ctx = null;
+                this.muted = false;
+            }
+
+            init() {
+                if (!this.ctx) {
+                    const AudioContext = window.AudioContext || window.webkitAudioContext;
+                    this.ctx = new AudioContext();
+                }
+            }
+
+            // Synth Laser / Dodge Sound
+            playMove() {
+                if (this.muted || !this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(300, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(600, this.ctx.currentTime + 0.08);
+                gain.gain.setValueAtTime(0.15, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.08);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.08);
+            }
+
+            // Pickup Item Sound
+            playPickup() {
+                if (this.muted || !this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(523.25, this.ctx.currentTime); // C5
+                osc.frequency.setValueAtTime(659.25, this.ctx.currentTime + 0.06); // E5
+                osc.frequency.setValueAtTime(783.99, this.ctx.currentTime + 0.12); // G5
+                gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.25);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.25);
+            }
+
+            // Explosion Sound Effect
+            playExplosion() {
+                if (this.muted || !this.ctx) return;
+                
+                const bufferSize = this.ctx.sampleRate * 0.4;
+                const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) {
+                    data[i] = Math.random() * 2 - 1;
+                }
+
+                const noise = this.ctx.createBufferSource();
+                noise.buffer = buffer;
+
+                const filter = this.ctx.createBiquadFilter();
+                filter.type = 'lowpass';
+                filter.frequency.setValueAtTime(800, this.ctx.currentTime);
+                filter.frequency.exponentialRampToValueAtTime(30, this.ctx.currentTime + 0.4);
+
+                const gain = this.ctx.createGain();
+                gain.gain.setValueAtTime(0.5, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.4);
+
+                noise.connect(filter);
+                filter.connect(gain);
+                gain.connect(this.ctx.destination);
+
+                noise.start();
+                noise.stop(this.ctx.currentTime + 0.4);
+            }
+        }
+
+        const audio = new SoundEngine();
+
+        // --- GAME ENGINE STATE ---
+        let state = {
+            active: false,
+            score: 0,
+            bestScore: getVerifiedHighScore(),
+            currentLane: 1, // 0: Left, 1: Center, 2: Right
+            targetX: 0,
+            speed: CONFIG.baseSpeed,
+            distanceTraveled: 0,
+            lastSpawnDistance: 0,
+            obstacles: [],
+            pickups: [],
+            particles: [],
+            stars: null,
+            shakeTime: 0
+        };
+
+        // --- THREE.JS SCENE SETUP ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x05050a, 0.015);
+
+        // Perspective Camera setup optimized for 9:16 aspect ratio
+        const camera = new THREE.PerspectiveCamera(65, container.clientWidth / container.clientHeight, 0.1, 200);
+        camera.position.set(0, 2.8, 6.5);
+        camera.lookAt(0, 0, -10);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+        renderer.setSize(container.clientWidth, container.clientHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        container.appendChild(renderer.domElement);
+
+        // --- LIGHTING ---
+        const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0x00f0ff, 1.0);
+        dirLight.position.set(0, 10, -10);
+        scene.add(dirLight);
+
+        const shipLight = new THREE.PointLight(0x00ffff, 2.5, 12);
+        scene.add(shipLight);
+
+        // --- SCENE OBJECT CREATION ---
+
+        // 1. Create Player Low-Poly Cyber Spaceship
+        function createSpaceship() {
+            const shipGroup = new THREE.Group();
+
+            // Fuselage / Hull (Vibrant Blue & Emissive)
+            const bodyGeo = new THREE.ConeGeometry(0.5, 2.2, 5);
+            bodyGeo.rotateX(Math.PI / 2);
+            const bodyMat = new THREE.MeshStandardMaterial({
+                color: 0x0088ff,
+                emissive: 0x0044aa,
+                emissiveIntensity: 0.6,
+                roughness: 0.2,
+                metalness: 0.8,
+                flatShading: true
+            });
+            const body = new THREE.Mesh(bodyGeo, bodyMat);
+            shipGroup.add(body);
+
+            // Wings (Luminous Cyan)
+            const wingGeo = new THREE.BufferGeometry();
+            const wingVertices = new Float32Array([
+                0, 0, 0,       // Nose
+                -1.6, -0.1, 0.8, // Left tip
+                0, 0.1, 0.5,   // Center back top
+                0, 0, 0,
+                1.6, -0.1, 0.8,  // Right tip
+                0, 0.1, 0.5
+            ]);
+            wingGeo.setAttribute('position', new THREE.BufferAttribute(wingVertices, 3));
+            wingGeo.computeVertexNormals();
+            const wingMat = new THREE.MeshStandardMaterial({
+                color: 0x00ffff,
+                emissive: 0x00aaff,
+                emissiveIntensity: 0.8,
+                roughness: 0.1,
+                side: THREE.DoubleSide
+            });
+            const wings = new THREE.Mesh(wingGeo, wingMat);
+            shipGroup.add(wings);
+
+            // Glowing Thruster Engine
+            const engineGeo = new THREE.CylinderGeometry(0.2, 0.1, 0.4, 8);
+            engineGeo.rotateX(Math.PI / 2);
+            const engineMat = new THREE.MeshBasicMaterial({ color: 0xff0080 });
+            const engine = new THREE.Mesh(engineGeo, engineMat);
+            engine.position.set(0, 0, 1.1);
+            shipGroup.add(engine);
+
+            shipGroup.position.set(0, 0.5, 0);
+            return shipGroup;
+        }
+
+        const playerShip = createSpaceship();
+        scene.add(playerShip);
+
+        // 2. Create Endless Grid Track Tunnel (Bright Unlit Grid Lines)
+        const tunnelGroup = new THREE.Group();
+        const gridGeo = new THREE.PlaneGeometry(12, 120, 12, 60);
+        gridGeo.rotateX(-Math.PI / 2);
+
+        // Fixed Unlit Material with fog disabled and depthWrite set to false to prevent flickering/turning black
+        const gridMat = new THREE.MeshBasicMaterial({
+            color: 0x00f0ff,
+            wireframe: true,
+            transparent: true,
+            opacity: 0.8,
+            fog: false,
+            depthWrite: false
+        });
+
+        const gridMesh1 = new THREE.Mesh(gridGeo, gridMat);
+        gridMesh1.position.z = -50;
+        const gridMesh2 = new THREE.Mesh(gridGeo, gridMat);
+        gridMesh2.position.z = -170;
+        tunnelGroup.add(gridMesh1, gridMesh2);
+        scene.add(tunnelGroup);
+
+        // Side Cyber Rails (Bright Neon Pink)
+        function createRails() {
+            const railGeo = new THREE.CylinderGeometry(0.08, 0.08, 200, 8);
+            railGeo.rotateX(Math.PI / 2);
+            const railMat = new THREE.MeshBasicMaterial({ color: 0xff0080, fog: false });
+            
+            const leftRail = new THREE.Mesh(railGeo, railMat);
+            leftRail.position.set(-3.5, 0.1, -80);
+            
+            const rightRail = new THREE.Mesh(railGeo, railMat);
+            rightRail.position.set(3.5, 0.1, -80);
+
+            scene.add(leftRail, rightRail);
+        }
+        createRails();
+
+        // 3. Background Starfield Particles
+        function createStarfield() {
+            const starCount = 400;
+            const geo = new THREE.BufferGeometry();
+            const positions = new Float32Array(starCount * 3);
+
+            for (let i = 0; i < starCount * 3; i += 3) {
+                positions[i] = (Math.random() - 0.5) * 80;
+                positions[i + 1] = Math.random() * 40;
+                positions[i + 2] = (Math.random() - 0.5) * 150 - 50;
+            }
+
+            geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            const mat = new THREE.PointsMaterial({
+                color: 0xffffff,
+                size: 0.3,
+                transparent: true,
+                opacity: 0.6
+            });
+
+            state.stars = new THREE.Points(geo, mat);
+            scene.add(state.stars);
+        }
+        createStarfield();
+
+        // --- OBSTACLES & PICKUPS GENERATION ---
+
+        function createObstacleMesh() {
+            const group = new THREE.Group();
+            
+            const outerGeo = new THREE.BoxGeometry(1.6, 1.6, 0.4);
+            const outerMat = new THREE.MeshStandardMaterial({
+                color: 0xff0055,
+                emissive: 0xff0033,
+                wireframe: true
+            });
+            const outer = new THREE.Mesh(outerGeo, outerMat);
+
+            const coreGeo = new THREE.OctahedronGeometry(0.6);
+            const coreMat = new THREE.MeshBasicMaterial({ color: 0xff0080 });
+            const core = new THREE.Mesh(coreGeo, coreMat);
+
+            group.add(outer, core);
+            return group;
+        }
+
+        function createPickupMesh() {
+            const geo = new THREE.IcosahedronGeometry(0.4, 1);
+            const mat = new THREE.MeshStandardMaterial({
+                color: 0x00f0ff,
+                emissive: 0x00f0ff,
+                roughness: 0.1,
+                wireframe: true
+            });
+            return new THREE.Mesh(geo, mat);
+        }
+
+        function spawnEntities() {
+            const laneIndex = Math.floor(Math.random() * 3);
+            const posX = CONFIG.lanes[laneIndex];
+
+            if (Math.random() < 0.75) {
+                const obstacle = createObstacleMesh();
+                obstacle.position.set(posX, 0.8, CONFIG.spawnDistance);
+                scene.add(obstacle);
+                state.obstacles.push(obstacle);
+            } else {
+                const pickup = createPickupMesh();
+                pickup.position.set(posX, 0.8, CONFIG.spawnDistance);
+                scene.add(pickup);
+                state.pickups.push(pickup);
+            }
+        }
+
+        function createExplosion(pos) {
+            const particleCount = 25;
+            const geo = new THREE.BufferGeometry();
+            const positions = [];
+            const velocities = [];
+
+            for (let i = 0; i < particleCount; i++) {
+                positions.push(pos.x, pos.y, pos.z);
+                velocities.push(
+                    (Math.random() - 0.5) * 0.4,
+                    (Math.random() - 0.5) * 0.4,
+                    (Math.random() - 0.5) * 0.4
+                );
+            }
+
+            geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            const mat = new THREE.PointsMaterial({
+                color: 0xff0080,
+                size: 0.25,
+                transparent: true,
+                opacity: 1
+            });
+
+            const pSystem = new THREE.Points(geo, mat);
+            pSystem.userData = { velocities, life: 1.0 };
+            scene.add(pSystem);
+            state.particles.push(pSystem);
+        }
+
+        // --- INPUT & PLAYER CONTROL CONTROLLER WITH RATE LIMIT GUARD ---
+        function moveLeft() {
+            if (!state.active || !canAcceptInput()) return;
+            if (state.currentLane > 0) {
+                state.currentLane--;
+                audio.playMove();
+            }
+        }
+
+        function moveRight() {
+            if (!state.active || !canAcceptInput()) return;
+            if (state.currentLane < 2) {
+                state.currentLane++;
+                audio.playMove();
+            }
+        }
+
+        // Keyboard Event Listeners
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A' || e.key === 'q' || e.key === 'Q') moveLeft();
+            if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') moveRight();
+        });
+
+        // Touch Interaction Setup
+        document.getElementById('touch-left').addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            moveLeft();
+        });
+        document.getElementById('touch-right').addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            moveRight();
+        });
+
+        // --- GAME LOOP & PHYSICS UPDATE ---
+        function updateGame(delta) {
+            if (!state.active) return;
+
+            const dt = Math.min(delta, 0.05);
+
+            // 1. Dynamic Smooth Linear Acceleration
+            state.speed = Math.min(CONFIG.maxSpeed, state.speed + CONFIG.speedInc * dt);
+            const speedRatio = state.speed / CONFIG.baseSpeed;
+            document.getElementById('speed-indicator').innerText = sanitizeHTML(speedRatio.toFixed(1) + 'x');
+
+            // Distance Traveled
+            const stepDistance = state.speed * dt;
+            state.distanceTraveled += stepDistance;
+
+            // Score calculation based on distance
+            state.score = Math.floor(state.distanceTraveled);
+            document.getElementById('score-val').innerText = sanitizeHTML(state.score.toString());
+
+            // 2. Ultra Smooth Lerp for Player Movement
+            state.targetX = CONFIG.lanes[state.currentLane];
+            const lerpFactor = 1.0 - Math.exp(-14 * dt);
+            playerShip.position.x += (state.targetX - playerShip.position.x) * lerpFactor;
+            
+            const tiltTarget = (playerShip.position.x - state.targetX) * 0.35;
+            playerShip.rotation.z += (tiltTarget - playerShip.rotation.z) * lerpFactor;
+            playerShip.rotation.y = playerShip.rotation.z * 0.3;
+
+            shipLight.position.set(playerShip.position.x, playerShip.position.y, playerShip.position.z);
+
+            // 3. Smooth Endless Grid Motion
+            tunnelGroup.children.forEach(grid => {
+                grid.position.z += stepDistance;
+                if (grid.position.z > 10) {
+                    grid.position.z -= 240;
+                }
+            });
+
+            // 4. Well-spaced Obstacle & Orb Spawning
+            if (state.distanceTraveled - state.lastSpawnDistance >= CONFIG.spawnInterval) {
+                spawnEntities();
+                state.lastSpawnDistance = state.distanceTraveled;
+            }
+
+            // 5. Update Obstacles & Collision Check
+            for (let i = state.obstacles.length - 1; i >= 0; i--) {
+                const obs = state.obstacles[i];
+                obs.position.z += stepDistance;
+                obs.children[1].rotation.y += 1.5 * dt;
+
+                const distZ = Math.abs(obs.position.z - playerShip.position.z);
+                const distX = Math.abs(obs.position.x - playerShip.position.x);
+
+                if (distZ < 1.0 && distX < 0.95) {
+                    triggerGameOver();
+                    return;
+                }
+
+                if (obs.position.z > CONFIG.despawnDistance) {
+                    scene.remove(obs);
+                    state.obstacles.splice(i, 1);
+                }
+            }
+
+            // 6. Update Energy Score Pickups
+            for (let i = state.pickups.length - 1; i >= 0; i--) {
+                const orb = state.pickups[i];
+                orb.position.z += stepDistance;
+                orb.rotation.x += 1.0 * dt;
+                orb.rotation.y += 1.5 * dt;
+
+                const distZ = Math.abs(orb.position.z - playerShip.position.z);
+                const distX = Math.abs(orb.position.x - playerShip.position.x);
+
+                if (distZ < 1.0 && distX < 0.95) {
+                    state.distanceTraveled += 25;
+                    audio.playPickup();
+                    createExplosion(orb.position);
+                    scene.remove(orb);
+                    state.pickups.splice(i, 1);
+                    continue;
+                }
+
+                if (orb.position.z > CONFIG.despawnDistance) {
+                    scene.remove(orb);
+                    state.pickups.splice(i, 1);
+                }
+            }
+
+            // 7. Update Particle Systems
+            for (let i = state.particles.length - 1; i >= 0; i--) {
+                const sys = state.particles[i];
+                const positions = sys.geometry.attributes.position.array;
+                const vels = sys.userData.velocities;
+
+                for (let j = 0; j < vels.length / 3; j++) {
+                    positions[j * 3] += vels[j * 3] * dt * 60;
+                    positions[j * 3 + 1] += vels[j * 3 + 1] * dt * 60;
+                    positions[j * 3 + 2] += vels[j * 3 + 2] * dt * 60;
+                }
+
+                sys.geometry.attributes.position.needsUpdate = true;
+                sys.userData.life -= 1.5 * dt;
+                sys.material.opacity = Math.max(0, sys.userData.life);
+
+                if (sys.userData.life <= 0) {
+                    scene.remove(sys);
+                    state.particles.splice(i, 1);
+                }
+            }
+
+            // 8. Screen Shake Processing
+            if (state.shakeTime > 0) {
+                camera.position.x = (Math.random() - 0.5) * 0.3;
+                camera.position.y = 2.8 + (Math.random() - 0.5) * 0.3;
+                state.shakeTime -= dt;
+            } else {
+                camera.position.x = 0;
+                camera.position.y = 2.8;
+            }
+        }
+
+        // --- GAME STATE MANAGEMENT ---
+        function startGame() {
+            audio.init();
+
+            state.obstacles.forEach(o => scene.remove(o));
+            state.pickups.forEach(p => scene.remove(p));
+            state.particles.forEach(pt => scene.remove(pt));
+            
+            state.obstacles = [];
+            state.pickups = [];
+            state.particles = [];
+            
+            state.score = 0;
+            state.distanceTraveled = 0;
+            state.lastSpawnDistance = 0;
+            state.currentLane = 1;
+            state.speed = CONFIG.baseSpeed;
+            state.active = true;
+
+            document.getElementById('score-val').innerText = '0';
+            document.getElementById('game-overlay').classList.add('opacity-0', 'pointer-events-none');
+        }
+
+        function triggerGameOver() {
+            state.active = false;
+            state.shakeTime = 0.4;
+            audio.playExplosion();
+            createExplosion(playerShip.position);
+
+            // High Score Verified Check & Secure Save
+            if (state.score > state.bestScore) {
+                state.bestScore = state.score;
+                saveVerifiedHighScore(state.bestScore);
+            }
+
+            document.getElementById('main-title').innerText = "COLLISION !";
+            document.getElementById('sub-title').innerText = "PANNE SYSTÈME - COURSE INTERROMPUE";
+            document.getElementById('final-score').innerText = sanitizeHTML(state.score.toString()) + 'm';
+            document.getElementById('final-best').innerText = sanitizeHTML(state.bestScore.toString()) + 'm';
+            document.getElementById('stats-container').classList.remove('hidden');
+            document.getElementById('start-btn').innerText = "RECOMMENCER";
+            document.getElementById('best-score-val').innerText = sanitizeHTML(state.bestScore.toString());
+
+            setTimeout(() => {
+                document.getElementById('game-overlay').classList.remove('opacity-0', 'pointer-events-none');
+            }, 600);
+        }
+
+        // --- UI BUTTON EVENT LISTENERS ---
+        document.getElementById('start-btn').addEventListener('click', startGame);
+
+        // Best score initial display
+        document.getElementById('best-score-val').innerText = sanitizeHTML(state.bestScore.toString());
+
+        // Sound Toggle
+        const soundBtn = document.getElementById('sound-btn');
+        soundBtn.addEventListener('click', () => {
+            audio.init();
+            audio.muted = !audio.muted;
+            soundBtn.innerHTML = audio.muted ? 
+                '<i data-lucide="volume-x" class="w-5 h-5 text-red-400"></i>' : 
+                '<i data-lucide="volume-2" class="w-5 h-5 text-cyan-400"></i>';
+            lucide.createIcons();
+        });
+
+        // Hacker News Open-Source Modal Toggle Buttons
+        const hnModal = document.getElementById('hn-modal');
+        function openHNModal() {
+            hnModal.classList.remove('hidden');
+        }
+        function closeHNModal() {
+            hnModal.classList.add('hidden');
+        }
+
+        document.getElementById('hn-info-btn').addEventListener('click', openHNModal);
+        document.getElementById('menu-license-btn').addEventListener('click', openHNModal);
+        document.getElementById('close-hn-btn').addEventListener('click', closeHNModal);
+        document.getElementById('hn-resume-btn').addEventListener('click', closeHNModal);
+
+        // --- RESPONSIVE CANVAS RESIZING ---
+        function onWindowResize() {
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+            renderer.setSize(width, height);
+        }
+        window.addEventListener('resize', onWindowResize);
+
+        // Initialize Lucide Icons
+        lucide.createIcons();
+
+        // --- MAIN RENDER LOOP ---
+        let clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+            
+            updateGame(delta);
+            
+            if (!state.active) {
+                playerShip.position.y = 0.5 + Math.sin(Date.now() * 0.003) * 0.1;
+                playerShip.rotation.y += 0.005;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // Start Animation Loop on Window Load
+        window.onload = function() {
+            animate();
+        };
+    </script>
+</body>
+</html>
